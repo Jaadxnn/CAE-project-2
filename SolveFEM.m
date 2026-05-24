@@ -5,8 +5,24 @@ function [U, Ux, Uy, Umag, ...
           n_nodes, n_elements, ...
           ncon, X, Y, ...
           E, v, t, ...
-          F, dzero, NDU)
+          F, dzero, NDU, ...
+          material)
 
+% =========================================================
+% MATERIAL HANDLING
+% =========================================================
+if nargin < 13 || isempty(material)
+    material = ones(n_elements,1);
+end
+
+% Material 1: selected tool material from GUI
+E_tool = E;
+v_tool = v;
+
+% Material 2: BUE / stagnation zone approximation
+% steel-like properties
+E_BUE = 210e9;
+v_BUE = 0.30;
 
 
             K = zeros(2*n_nodes);
@@ -38,15 +54,26 @@ function [U, Ux, Uy, Umag, ...
                                  0 c1 0 c2 0 c3;
                                  c1 b1 c2 b2 c3 b3];
             
-                D = (E/(1-v^2))*[1 v 0;
-                                 v 1 0;
-                                 0 0 (1-v)/2];
+                % Select material properties for this element
+                if material(i) == 1
+                    Ei = E_tool;
+                    vi = v_tool;
+                elseif material(i) == 2
+                    Ei = E_BUE;
+                    vi = v_BUE;
+                else
+                    error('Unknown material ID in element %d', i);
+                end
+                
+                D = (Ei/(1-vi^2))*[1 vi 0;
+                                   vi 1 0;
+                                   0 0 (1-vi)/2];
 %Checking
-disp(size(B))
-disp(size(D))
-disp(E)
-disp(v)
-disp(t)
+% disp(size(B))
+% disp(size(D))
+% disp(E)
+% disp(v)
+% disp(t)
                 KE = (t)*Ae*(B.')*D*B;
             
                 ROC = [2*n1-1 2*n1 2*n2-1 2*n2 2*n3-1 2*n3];
@@ -61,21 +88,30 @@ disp(t)
 %% =========================
 % 8. APPLY BCs
 % =========================
-
+fprintf('SolveFEM received thickness t = %.6g\n', t);
 KM = K;
+FM = F;
 
 for k = 1:NDU
     n = dzero(k);
+
     KM(n,:) = 0;
     KM(:,n) = 0;
     KM(n,n) = 1;
+
+    % Force at a constrained displacement DOF must be removed
+    FM(n) = 0;
 end
 
-%% =========================
-% 9. SOLVE
-% =========================
+% Optional diagnostic
+fprintf('SolveFEM received NDU = %d\n', NDU);
+fprintf('SolveFEM received length(dzero) = %d\n', length(dzero));
+fprintf('Global DOFs = %d\n', 2*n_nodes);
+if rcond(KM) < 1e-14
+    warning('Modified stiffness matrix is close to singular. Check mesh connectivity and boundary conditions.');
+end
 
-U = KM \ F;
+U = KM \ FM;
 U = U;
 
 %*********POST PROCCESSING**************
@@ -118,9 +154,19 @@ for i = 1:n_elements
                      0 c1 0 c2 0 c3;
                      c1 b1 c2 b2 c3 b3];
 
-    D = (E/(1-v^2))*[1 v 0;
-                     v 1 0;
-                     0 0 (1-v)/2];
+    if material(i) == 1
+        Ei = E_tool;
+        vi = v_tool;
+    elseif material(i) == 2
+        Ei = E_BUE;
+        vi = v_BUE;
+    else
+        error('Unknown material ID in element %d', i);
+    end
+    
+    D = (Ei/(1-vi^2))*[1 vi 0;
+                       vi 1 0;
+                       0 0 (1-vi)/2];
 
     d = [U(2*n1-1); U(2*n1);
          U(2*n2-1); U(2*n2);
