@@ -1,0 +1,122 @@
+function T = SolveThermal( ...
+    n_nodes, n_elements, ...
+    ncon, X, Y, ...
+    t, ...
+    material, ...
+    k_tool, k_BUE, ...
+    fixedNodes, fixedValues)
+
+% =========================================================
+% SOLVETHERMAL
+%
+% Solves 2D steady-state conduction using linear triangular
+% elements.
+%
+% Governing form:
+%       Kt * T = Q
+%
+% One thermal DOF per node: temperature T.
+%
+% material = 1 -> main tool body
+% material = 2 -> BUE / stagnation zone
+% =========================================================
+
+if nargin < 8 || isempty(material)
+    material = ones(n_elements,1);
+end
+
+Kt = zeros(n_nodes, n_nodes);
+Q  = zeros(n_nodes, 1);
+
+for e = 1:n_elements
+
+    n1 = ncon(e,1);
+    n2 = ncon(e,2);
+    n3 = ncon(e,3);
+
+    x1 = X(n1); y1 = Y(n1);
+    x2 = X(n2); y2 = Y(n2);
+    x3 = X(n3); y3 = Y(n3);
+
+    Ae = 0.5 * det([1 x1 y1;
+                    1 x2 y2;
+                    1 x3 y3]);
+
+    Ae = abs(Ae);
+
+    if Ae <= 0
+        error('Element %d has zero or negative area.', e);
+    end
+
+    b1 = y2 - y3;
+    b2 = y3 - y1;
+    b3 = y1 - y2;
+
+    c1 = x3 - x2;
+    c2 = x1 - x3;
+    c3 = x2 - x1;
+
+    % Thermal gradient matrix
+    Bth = (1/(2*Ae)) * [ ...
+        b1 b2 b3;
+        c1 c2 c3];
+
+    % Select conductivity
+    if material(e) == 1
+        k = k_tool;
+    elseif material(e) == 2
+        k = k_BUE;
+    else
+        error('Unknown thermal material ID in element %d', e);
+    end
+
+    % Isotropic thermal conductivity matrix
+    Dth = k * eye(2);
+
+    % Element thermal stiffness matrix
+    Kte = t * Ae * (Bth.') * Dth * Bth;
+
+    nodes = [n1 n2 n3];
+
+    for i = 1:3
+        for j = 1:3
+            Kt(nodes(i), nodes(j)) = Kt(nodes(i), nodes(j)) + Kte(i,j);
+        end
+    end
+end
+
+% =========================================================
+% APPLY PRESCRIBED TEMPERATURE BOUNDARY CONDITIONS
+% =========================================================
+KM = Kt;
+QM = Q;
+
+fixedNodes = fixedNodes(:);
+fixedValues = fixedValues(:);
+
+if length(fixedNodes) ~= length(fixedValues)
+    error('fixedNodes and fixedValues must have the same length.');
+end
+
+for i = 1:length(fixedNodes)
+
+    node = fixedNodes(i);
+    Tval = fixedValues(i);
+
+    % Correct RHS for non-zero prescribed temperature
+    QM = QM - KM(:,node) * Tval;
+
+    KM(node,:) = 0;
+    KM(:,node) = 0;
+    KM(node,node) = 1;
+
+    QM(node) = Tval;
+end
+
+if rcond(KM) < 1e-14
+    warning('Thermal matrix is close to singular. Check thermal boundary conditions.');
+end
+
+T = KM \ QM;
+
+end
