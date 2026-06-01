@@ -222,8 +222,19 @@ end
 % =========================================================
 % FORMATTING
 % =========================================================
-caxis(ax, ...
-    [min(nodalField) max(nodalField)]);
+minVal = min(nodalField);
+maxVal = max(nodalField);
+
+if ~isfinite(minVal) || ~isfinite(maxVal)
+    error('Contour field contains NaN or Inf values. Check the FEM solution.');
+end
+
+if abs(maxVal - minVal) < eps
+    minVal = minVal - 1;
+    maxVal = maxVal + 1;
+end
+
+caxis(ax, [minVal maxVal]);
 
 cb = colorbar(ax);
 cb.Label.String = plotTitle;
